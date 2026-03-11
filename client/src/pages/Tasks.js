@@ -6,12 +6,10 @@ import ErrorMessage   from '../components/common/ErrorMessage';
 import { Modal, Field } from './Activities';
 
 const EMPTY_FORM = {
-  name:         '',
-  description:  '',
-  activity:     '',
-  targetValue:  '',
-  currentValue: '',
-  unit:         '',
+  name:                '',
+  activityId:          '',
+  quantitativeProgress:0,
+  unit:                'units',
 };
 
 export default function Tasks() {
@@ -26,7 +24,7 @@ export default function Tasks() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [formErr, setFormErr] = useState('');
   const [progressModal, setProgressModal] = useState(null);
-  const [progressVal, setProgressVal] = useState('');
+  const [progressDelta, setProgressDelta] = useState('');
 
   useEffect(() => {
     fetchTasks();
@@ -36,8 +34,7 @@ export default function Tasks() {
 
   const filtered = tasks.filter((t) => {
     if (!filterActivity) return true;
-    const aId = t.activity?._id || t.activity;
-    return aId === filterActivity;
+    return (t.activityId?._id || t.activityId) === filterActivity;
   });
 
   function openCreate() {
@@ -49,12 +46,10 @@ export default function Tasks() {
 
   function openEdit(t) {
     setForm({
-      name:         t.name || '',
-      description:  t.description || '',
-      activity:     t.activity?._id || t.activity || '',
-      targetValue:  t.targetValue ?? '',
-      currentValue: t.currentValue ?? '',
-      unit:         t.unit || '',
+      name:                t.name || '',
+      activityId:          t.activityId?._id || t.activityId || '',
+      quantitativeProgress:t.quantitativeProgress ?? 0,
+      unit:                t.unit || 'units',
     });
     setEditTarget(t);
     setFormErr('');
@@ -65,9 +60,10 @@ export default function Tasks() {
     e.preventDefault();
     if (!form.name.trim()) { setFormErr('Name is required'); return; }
     const payload = {
-      ...form,
-      targetValue:  form.targetValue  !== '' ? Number(form.targetValue)  : undefined,
-      currentValue: form.currentValue !== '' ? Number(form.currentValue) : undefined,
+      name:                form.name.trim(),
+      activityId:          form.activityId || undefined,
+      quantitativeProgress:Number(form.quantitativeProgress) || 0,
+      unit:                form.unit,
     };
     try {
       if (editTarget) await updateTask(editTarget._id, payload);
@@ -83,19 +79,15 @@ export default function Tasks() {
 
   async function handleUpdateProgress(e) {
     e.preventDefault();
+    const delta = Number(progressDelta);
+    if (isNaN(delta)) return;
     try {
-      await tasksAPI.updateProgress(progressModal._id, { currentValue: Number(progressVal) });
-      // Refresh tasks
+      await tasksAPI.updateProgress(progressModal._id, { progress: delta });
       await fetchTasks();
       setProgressModal(null);
     } catch (err) {
       console.error(err);
     }
-  }
-
-  function progressPct(t) {
-    if (!t.targetValue || t.targetValue === 0) return 0;
-    return Math.min(100, Math.round((t.currentValue || 0) / t.targetValue * 100));
   }
 
   return (
@@ -107,7 +99,6 @@ export default function Tasks() {
 
       <ErrorMessage message={error} onDismiss={clearError} />
 
-      {/* Filter */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-5 flex gap-3">
         <select className="input flex-1 max-w-xs" value={filterActivity}
           onChange={(e) => setFilterActivity(e.target.value)}>
@@ -125,35 +116,35 @@ export default function Tasks() {
             <p className="text-center text-gray-400 py-10">No tasks found.</p>
           )}
           {filtered.map((t) => {
-            const pct = progressPct(t);
+            const progress = t.quantitativeProgress || 0;
             return (
               <div key={t._id} className="bg-white rounded-xl shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-semibold text-gray-800 truncate">{t.name}</span>
-                    {t.activity?.name && (
-                      <span className="badge badge-indigo shrink-0">{t.activity.name}</span>
+                    {t.activityId?.name && (
+                      <span className="badge badge-indigo shrink-0">{t.activityId.name}</span>
                     )}
                   </div>
-                  {t.description && <p className="text-xs text-gray-500 mb-2">{t.description}</p>}
                   <div className="flex items-center gap-3">
                     <div className="flex-1 bg-gray-200 rounded-full h-2">
                       <div
-                        className="h-2 rounded-full transition-all"
-                        style={{
-                          width: `${pct}%`,
-                          backgroundColor: pct >= 100 ? '#22c55e' : '#6366f1',
-                        }}
+                        className="h-2 rounded-full bg-indigo-500 transition-all"
+                        style={{ width: `${Math.min(100, progress)}%` }}
                       />
                     </div>
                     <span className="text-xs text-gray-500 whitespace-nowrap">
-                      {t.currentValue ?? 0} / {t.targetValue ?? '?'} {t.unit || ''} ({pct}%)
+                      {progress} {t.unit || 'units'}
                     </span>
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button onClick={() => { setProgressModal(t); setProgressVal(String(t.currentValue || 0)); }}
-                    className="text-xs px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700">Progress</button>
+                  <button
+                    onClick={() => { setProgressModal(t); setProgressDelta(''); }}
+                    className="text-xs px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700"
+                  >
+                    +Progress
+                  </button>
                   <button onClick={() => openEdit(t)} className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600">Edit</button>
                   <button onClick={() => handleDelete(t._id)} className="text-xs px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600">Del</button>
                 </div>
@@ -163,7 +154,6 @@ export default function Tasks() {
         </div>
       )}
 
-      {/* Create / Edit Modal */}
       {showModal && (
         <Modal title={editTarget ? 'Edit Task' : 'New Task'} onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -172,28 +162,20 @@ export default function Tasks() {
               <input className="input" value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </Field>
-            <Field label="Description">
-              <textarea className="input" rows={2} value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            </Field>
             <Field label="Activity">
-              <select className="input" value={form.activity}
-                onChange={(e) => setForm({ ...form, activity: e.target.value })}>
+              <select className="input" value={form.activityId}
+                onChange={(e) => setForm({ ...form, activityId: e.target.value })}>
                 <option value="">None</option>
                 {activities.map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
               </select>
             </Field>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Target Value">
-                <input className="input" type="number" value={form.targetValue}
-                  onChange={(e) => setForm({ ...form, targetValue: e.target.value })} />
-              </Field>
-              <Field label="Current Value">
-                <input className="input" type="number" value={form.currentValue}
-                  onChange={(e) => setForm({ ...form, currentValue: e.target.value })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Current Progress">
+                <input className="input" type="number" min="0" value={form.quantitativeProgress}
+                  onChange={(e) => setForm({ ...form, quantitativeProgress: e.target.value })} />
               </Field>
               <Field label="Unit">
-                <input className="input" placeholder="km, hrs…" value={form.unit}
+                <input className="input" placeholder="units, km, hrs…" value={form.unit}
                   onChange={(e) => setForm({ ...form, unit: e.target.value })} />
               </Field>
             </div>
@@ -205,17 +187,20 @@ export default function Tasks() {
         </Modal>
       )}
 
-      {/* Progress Modal */}
       {progressModal && (
-        <Modal title={`Update Progress: ${progressModal.name}`} onClose={() => setProgressModal(null)}>
+        <Modal title={`Log Progress: ${progressModal.name}`} onClose={() => setProgressModal(null)}>
           <form onSubmit={handleUpdateProgress} className="space-y-4">
-            <Field label={`Current Value (target: ${progressModal.targetValue ?? '?'} ${progressModal.unit || ''})`}>
-              <input className="input" type="number" value={progressVal}
-                onChange={(e) => setProgressVal(e.target.value)} />
+            <p className="text-sm text-gray-500">
+              Current: <strong>{progressModal.quantitativeProgress || 0} {progressModal.unit}</strong>.
+              Enter the amount to <em>add</em>.
+            </p>
+            <Field label={`Add to progress (${progressModal.unit || 'units'})`}>
+              <input className="input" type="number" value={progressDelta}
+                onChange={(e) => setProgressDelta(e.target.value)} placeholder="e.g. 5" />
             </Field>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setProgressModal(null)} className="btn-secondary">Cancel</button>
-              <button type="submit" className="btn-primary">Update</button>
+              <button type="submit" className="btn-primary">Add</button>
             </div>
           </form>
         </Modal>

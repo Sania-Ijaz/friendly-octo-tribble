@@ -60,6 +60,7 @@ export function AppProvider({ children }) {
       dispatch({ type: 'SET_ENTITY', entity, payload: res.data });
     } catch (err) {
       dispatch({ type: 'SET_ERROR', payload: err.response?.data?.message || err.message });
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   }, []);
 

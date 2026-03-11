@@ -5,31 +5,33 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorMessage   from '../components/common/ErrorMessage';
 import { Modal, Field } from './Activities';
 
+// Event schema fields: timestamp, activityIds, inputIds, taskProgress (Map),
+// outcomeIds, resourceIds, peopleIds, financialImpact {accountId, amount, type}
+
 const EMPTY_FORM = {
-  name:        '',
-  date:        new Date().toISOString().slice(0, 10),
-  notes:       '',
-  activities:  [],  // array of IDs
-  inputs:      [],  // [{name, type, value}]
-  taskProgress:[],  // [{taskId, value}]
-  outcomes:    [],  // [{name, value, frequency}]
-  resources:   [],  // array of IDs
-  people:      [],  // array of IDs
-  financials:  [],  // [{accountId, amount, txType}]
+  timestamp:       new Date().toISOString().slice(0, 10),
+  activityIds:     [],
+  inputIds:        [],
+  taskProgress:    {},  // { [taskId]: incrementValue }
+  outcomeIds:      [],
+  resourceIds:     [],
+  peopleIds:       [],
+  financialImpact: { accountId: '', amount: '', type: 'spent' },
 };
 
 export default function Events() {
   const {
-    state: { events, activities, tasks, resources, people, accounts, loading, error },
-    fetchEvents, fetchActivities, fetchTasks, fetchResources, fetchPeople, fetchAccounts,
+    state: { events, activities, tasks, inputs, outcomes, resources, people, accounts, loading, error },
+    fetchEvents, fetchActivities, fetchTasks, fetchInputs, fetchOutcomes,
+    fetchResources, fetchPeople, fetchAccounts,
     createEvent, updateEvent, deleteEvent, clearError,
   } = useApp();
 
-  const [filter, setFilter]   = useState({ activity: '', dateFrom: '', dateTo: '' });
+  const [filter, setFilter]     = useState({ activityId: '', dateFrom: '', dateTo: '' });
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
-  const [form, setForm]       = useState(EMPTY_FORM);
-  const [formErr, setFormErr] = useState('');
+  const [form, setForm]         = useState(EMPTY_FORM);
+  const [formErr, setFormErr]   = useState('');
   const [detailEvent, setDetailEvent] = useState(null);
   const [detailData,  setDetailData]  = useState(null);
 
@@ -37,6 +39,8 @@ export default function Events() {
     fetchEvents();
     fetchActivities();
     fetchTasks();
+    fetchInputs();
+    fetchOutcomes();
     fetchResources();
     fetchPeople();
     fetchAccounts();
@@ -44,11 +48,9 @@ export default function Events() {
   }, []);
 
   const filtered = events.filter((ev) => {
-    const actMatch = !filter.activity ||
-      (ev.activities || []).some((a) =>
-        (a._id || a) === filter.activity
-      );
-    const d = new Date(ev.date || ev.createdAt);
+    const actMatch = !filter.activityId ||
+      (ev.activityIds || []).some((a) => (a._id || a) === filter.activityId);
+    const d = new Date(ev.timestamp || ev.createdAt);
     const fromMatch = !filter.dateFrom || d >= new Date(filter.dateFrom);
     const toMatch   = !filter.dateTo   || d <= new Date(filter.dateTo + 'T23:59:59');
     return actMatch && fromMatch && toMatch;
@@ -62,17 +64,29 @@ export default function Events() {
   }
 
   function openEdit(ev) {
+    // Reconstruct taskProgress as plain object from Map or plain object
+    const tp = {};
+    if (ev.taskProgress) {
+      if (ev.taskProgress instanceof Map) {
+        ev.taskProgress.forEach((v, k) => { tp[k] = v; });
+      } else {
+        Object.assign(tp, ev.taskProgress);
+      }
+    }
+    const fi = ev.financialImpact || {};
     setForm({
-      name:        ev.name || '',
-      date:        ev.date ? ev.date.slice(0, 10) : new Date().toISOString().slice(0, 10),
-      notes:       ev.notes || '',
-      activities:  (ev.activities || []).map((a) => a._id || a),
-      inputs:      ev.inputs      || [],
-      taskProgress:ev.taskProgress|| [],
-      outcomes:    ev.outcomes    || [],
-      resources:   (ev.resources  || []).map((r) => r._id || r),
-      people:      (ev.people     || []).map((p) => p._id || p),
-      financials:  ev.financials  || [],
+      timestamp:       ev.timestamp ? ev.timestamp.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      activityIds:     (ev.activityIds  || []).map((a) => a._id || a),
+      inputIds:        (ev.inputIds     || []).map((i) => i._id || i),
+      taskProgress:    tp,
+      outcomeIds:      (ev.outcomeIds   || []).map((o) => o._id || o),
+      resourceIds:     (ev.resourceIds  || []).map((r) => r._id || r),
+      peopleIds:       (ev.peopleIds    || []).map((p) => p._id || p),
+      financialImpact: {
+        accountId: fi.accountId?._id || fi.accountId || '',
+        amount:    fi.amount ?? '',
+        type:      fi.type || 'spent',
+      },
     });
     setEditTarget(ev);
     setFormErr('');
@@ -81,17 +95,27 @@ export default function Events() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    try {
-      const payload = {
-        ...form,
-        inputs:   form.inputs.filter((i) => i.name),
-        outcomes: form.outcomes.filter((o) => o.name),
+    // Clean up financialImpact — only include if accountId and amount are set
+    const fi = form.financialImpact;
+    const payload = {
+      timestamp:    form.timestamp,
+      activityIds:  form.activityIds,
+      inputIds:     form.inputIds,
+      taskProgress: form.taskProgress,
+      outcomeIds:   form.outcomeIds,
+      resourceIds:  form.resourceIds,
+      peopleIds:    form.peopleIds,
+    };
+    if (fi.accountId && fi.amount !== '') {
+      payload.financialImpact = {
+        accountId: fi.accountId,
+        amount:    Number(fi.amount),
+        type:      fi.type,
       };
-      if (editTarget) {
-        await updateEvent(editTarget._id, payload);
-      } else {
-        await createEvent(payload);
-      }
+    }
+    try {
+      if (editTarget) await updateEvent(editTarget._id, payload);
+      else            await createEvent(payload);
       setShowModal(false);
     } catch (_) {}
   }
@@ -110,7 +134,6 @@ export default function Events() {
     } catch (_) {}
   }
 
-  // ── multi-select helpers ──────────────────────────────────────────────────
   function toggleId(field, id) {
     setForm((f) => ({
       ...f,
@@ -118,18 +141,11 @@ export default function Events() {
     }));
   }
 
-  // ── dynamic list helpers ──────────────────────────────────────────────────
-  function addRow(field, blank) {
-    setForm((f) => ({ ...f, [field]: [...f[field], { ...blank }] }));
-  }
-  function updateRow(field, idx, key, val) {
+  function setTaskProgress(taskId, value) {
     setForm((f) => ({
       ...f,
-      [field]: f[field].map((r, i) => i === idx ? { ...r, [key]: val } : r),
+      taskProgress: { ...f.taskProgress, [taskId]: value === '' ? undefined : Number(value) },
     }));
-  }
-  function removeRow(field, idx) {
-    setForm((f) => ({ ...f, [field]: f[field].filter((_, i) => i !== idx) }));
   }
 
   return (
@@ -143,9 +159,8 @@ export default function Events() {
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-5 flex flex-wrap gap-3">
-        <select className="input flex-1 min-w-36"
-          value={filter.activity}
-          onChange={(e) => setFilter({ ...filter, activity: e.target.value })}>
+        <select className="input flex-1 min-w-36" value={filter.activityId}
+          onChange={(e) => setFilter({ ...filter, activityId: e.target.value })}>
           <option value="">All activities</option>
           {activities.map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
         </select>
@@ -153,7 +168,7 @@ export default function Events() {
           value={filter.dateFrom} onChange={(e) => setFilter({ ...filter, dateFrom: e.target.value })} />
         <input type="date" className="input flex-1 min-w-36"
           value={filter.dateTo} onChange={(e) => setFilter({ ...filter, dateTo: e.target.value })} />
-        <button onClick={() => setFilter({ activity:'', dateFrom:'', dateTo:'' })}
+        <button onClick={() => setFilter({ activityId: '', dateFrom: '', dateTo: '' })}
           className="btn-secondary text-xs">Clear</button>
       </div>
 
@@ -163,8 +178,8 @@ export default function Events() {
             <thead>
               <tr className="bg-gray-50 border-b text-left">
                 <th className="px-4 py-3 font-semibold text-gray-600">Date</th>
-                <th className="px-4 py-3 font-semibold text-gray-600">Name / Notes</th>
                 <th className="px-4 py-3 font-semibold text-gray-600">Activities</th>
+                <th className="px-4 py-3 font-semibold text-gray-600">Financial</th>
                 <th className="px-4 py-3 font-semibold text-gray-600 text-right">Actions</th>
               </tr>
             </thead>
@@ -172,30 +187,40 @@ export default function Events() {
               {filtered.length === 0 && (
                 <tr><td colSpan={4} className="text-center py-10 text-gray-400">No events found.</td></tr>
               )}
-              {[...filtered].reverse().map((ev) => (
-                <tr key={ev._id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                    {new Date(ev.date || ev.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => openDetail(ev)}
-                      className="font-medium text-indigo-600 hover:underline text-left">
-                      {ev.name || ev.notes || '(no title)'}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {(ev.activities || []).slice(0, 3).map((a, i) => (
-                        <span key={i} className="badge badge-indigo">{a.name || a}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button onClick={() => openEdit(ev)} className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 mr-1">Edit</button>
-                    <button onClick={() => handleDelete(ev._id)} className="text-xs px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600">Del</button>
-                  </td>
-                </tr>
-              ))}
+              {[...filtered].reverse().map((ev) => {
+                const fi = ev.financialImpact;
+                return (
+                  <tr key={ev._id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                      <button onClick={() => openDetail(ev)}
+                        className="font-medium text-indigo-600 hover:underline">
+                        {new Date(ev.timestamp || ev.createdAt).toLocaleDateString()}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {(ev.activityIds || []).slice(0, 3).map((a, i) => (
+                          <span key={i} className="badge badge-indigo">{a.name || '…'}</span>
+                        ))}
+                        {(ev.activityIds || []).length > 3 && (
+                          <span className="badge badge-gray">+{(ev.activityIds).length - 3}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {fi && fi.amount != null && (
+                        <span className={`font-medium ${fi.type === 'earned' ? 'text-green-600' : 'text-red-600'}`}>
+                          {fi.type === 'earned' ? '+' : '-'}${fi.amount}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => openEdit(ev)} className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 mr-1">Edit</button>
+                      <button onClick={() => handleDelete(ev._id)} className="text-xs px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600">Del</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -207,109 +232,71 @@ export default function Events() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <ErrorMessage message={formErr} />
 
-            {/* Basic info */}
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Name / Title">
-                <input className="input" value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              </Field>
-              <Field label="Date">
-                <input type="date" className="input" value={form.date}
-                  onChange={(e) => setForm({ ...form, date: e.target.value })} />
-              </Field>
-            </div>
-            <Field label="Notes">
-              <textarea className="input" rows={2} value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <Field label="Date">
+              <input type="date" className="input" value={form.timestamp}
+                onChange={(e) => setForm({ ...form, timestamp: e.target.value })} />
             </Field>
 
-            {/* Activities multi-select */}
+            {/* Activities */}
             <Field label="Activities">
               <div className="border border-gray-200 rounded-lg p-2 max-h-32 overflow-y-auto space-y-1">
                 {activities.length === 0 && <span className="text-xs text-gray-400">No activities yet</span>}
                 {activities.map((a) => (
                   <label key={a._id} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={form.activities.includes(a._id)}
-                      onChange={() => toggleId('activities', a._id)} />
+                    <input type="checkbox" checked={form.activityIds.includes(a._id)}
+                      onChange={() => toggleId('activityIds', a._id)} />
                     {a.name}
                   </label>
                 ))}
               </div>
             </Field>
 
-            {/* Inputs */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-sm font-medium text-gray-700">Inputs</label>
-                <button type="button" className="text-xs text-indigo-600 hover:underline"
-                  onClick={() => addRow('inputs', { name: '', type: 'numeric', value: '' })}>+ Add</button>
+            {/* Inputs (select existing) */}
+            <Field label="Inputs (select existing)">
+              <div className="border border-gray-200 rounded-lg p-2 max-h-28 overflow-y-auto space-y-1">
+                {inputs.length === 0 && <span className="text-xs text-gray-400">No inputs yet — create them on the Inputs page</span>}
+                {inputs.map((inp) => (
+                  <label key={inp._id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={form.inputIds.includes(inp._id)}
+                      onChange={() => toggleId('inputIds', inp._id)} />
+                    {inp.name} ({inp.type}) = {inp.value}
+                  </label>
+                ))}
               </div>
-              {form.inputs.map((inp, i) => (
-                <div key={i} className="flex gap-2 mb-2">
-                  <input className="input flex-1" placeholder="Name"
-                    value={inp.name} onChange={(e) => updateRow('inputs', i, 'name', e.target.value)} />
-                  <select className="input w-28" value={inp.type}
-                    onChange={(e) => updateRow('inputs', i, 'type', e.target.value)}>
-                    <option value="numeric">Numeric</option>
-                    <option value="text">Text</option>
-                    <option value="boolean">Boolean</option>
-                    <option value="duration">Duration</option>
-                  </select>
-                  <input className="input w-24" placeholder="Value"
-                    value={inp.value} onChange={(e) => updateRow('inputs', i, 'value', e.target.value)} />
-                  <button type="button" onClick={() => removeRow('inputs', i)}
-                    className="text-red-400 hover:text-red-600 text-lg">×</button>
-                </div>
-              ))}
-            </div>
+            </Field>
 
             {/* Task Progress */}
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-sm font-medium text-gray-700">Task Progress</label>
-                <button type="button" className="text-xs text-indigo-600 hover:underline"
-                  onClick={() => addRow('taskProgress', { taskId: '', value: '' })}>+ Add</button>
-              </div>
-              {form.taskProgress.map((tp, i) => (
-                <div key={i} className="flex gap-2 mb-2">
-                  <select className="input flex-1" value={tp.taskId}
-                    onChange={(e) => updateRow('taskProgress', i, 'taskId', e.target.value)}>
-                    <option value="">Select task…</option>
-                    {tasks.map((t) => <option key={t._id} value={t._id}>{t.name}</option>)}
-                  </select>
-                  <input className="input w-28" placeholder="Value / %" type="number" min="0" max="100"
-                    value={tp.value} onChange={(e) => updateRow('taskProgress', i, 'value', e.target.value)} />
-                  <button type="button" onClick={() => removeRow('taskProgress', i)}
-                    className="text-red-400 hover:text-red-600 text-lg">×</button>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Task Progress (add increment)</label>
+              {tasks.length === 0 && <p className="text-xs text-gray-400">No tasks yet</p>}
+              {tasks.map((t) => (
+                <div key={t._id} className="flex items-center gap-2 mb-2">
+                  <span className="text-sm text-gray-700 flex-1 truncate">{t.name}</span>
+                  <input
+                    className="input w-24"
+                    type="number"
+                    placeholder="add"
+                    value={form.taskProgress[t._id] ?? ''}
+                    onChange={(e) => setTaskProgress(t._id, e.target.value)}
+                  />
+                  <span className="text-xs text-gray-400">{t.unit}</span>
                 </div>
               ))}
             </div>
 
-            {/* Outcomes */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-sm font-medium text-gray-700">Outcomes</label>
-                <button type="button" className="text-xs text-indigo-600 hover:underline"
-                  onClick={() => addRow('outcomes', { name: '', value: '', frequency: 'once' })}>+ Add</button>
+            {/* Outcomes (select existing) */}
+            <Field label="Outcomes (select existing)">
+              <div className="border border-gray-200 rounded-lg p-2 max-h-28 overflow-y-auto space-y-1">
+                {outcomes.length === 0 && <span className="text-xs text-gray-400">No outcomes yet</span>}
+                {outcomes.map((oc) => (
+                  <label key={oc._id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={form.outcomeIds.includes(oc._id)}
+                      onChange={() => toggleId('outcomeIds', oc._id)} />
+                    {oc.name}
+                  </label>
+                ))}
               </div>
-              {form.outcomes.map((oc, i) => (
-                <div key={i} className="flex gap-2 mb-2">
-                  <input className="input flex-1" placeholder="Name"
-                    value={oc.name} onChange={(e) => updateRow('outcomes', i, 'name', e.target.value)} />
-                  <input className="input w-24" placeholder="Value"
-                    value={oc.value} onChange={(e) => updateRow('outcomes', i, 'value', e.target.value)} />
-                  <select className="input w-28" value={oc.frequency}
-                    onChange={(e) => updateRow('outcomes', i, 'frequency', e.target.value)}>
-                    <option value="once">Once</option>
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                  <button type="button" onClick={() => removeRow('outcomes', i)}
-                    className="text-red-400 hover:text-red-600 text-lg">×</button>
-                </div>
-              ))}
-            </div>
+            </Field>
 
             {/* Resources */}
             <Field label="Resources">
@@ -317,8 +304,8 @@ export default function Events() {
                 {resources.length === 0 && <span className="text-xs text-gray-400">No resources yet</span>}
                 {resources.map((r) => (
                   <label key={r._id} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={form.resources.includes(r._id)}
-                      onChange={() => toggleId('resources', r._id)} />
+                    <input type="checkbox" checked={form.resourceIds.includes(r._id)}
+                      onChange={() => toggleId('resourceIds', r._id)} />
                     {r.name}
                   </label>
                 ))}
@@ -331,39 +318,34 @@ export default function Events() {
                 {people.length === 0 && <span className="text-xs text-gray-400">No people yet</span>}
                 {people.map((p) => (
                   <label key={p._id} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={form.people.includes(p._id)}
-                      onChange={() => toggleId('people', p._id)} />
-                    {p.name}
+                    <input type="checkbox" checked={form.peopleIds.includes(p._id)}
+                      onChange={() => toggleId('peopleIds', p._id)} />
+                    {p.name} {p.role ? `(${p.role})` : ''}
                   </label>
                 ))}
               </div>
             </Field>
 
-            {/* Financial Impact */}
+            {/* Financial Impact (single) */}
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-sm font-medium text-gray-700">Financial Impact</label>
-                <button type="button" className="text-xs text-indigo-600 hover:underline"
-                  onClick={() => addRow('financials', { accountId: '', amount: '', txType: 'spent' })}>+ Add</button>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Financial Impact</label>
+              <div className="flex gap-2">
+                <select className="input flex-1"
+                  value={form.financialImpact.accountId}
+                  onChange={(e) => setForm({ ...form, financialImpact: { ...form.financialImpact, accountId: e.target.value } })}>
+                  <option value="">No account</option>
+                  {accounts.map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
+                </select>
+                <input className="input w-28" type="number" placeholder="Amount"
+                  value={form.financialImpact.amount}
+                  onChange={(e) => setForm({ ...form, financialImpact: { ...form.financialImpact, amount: e.target.value } })} />
+                <select className="input w-28"
+                  value={form.financialImpact.type}
+                  onChange={(e) => setForm({ ...form, financialImpact: { ...form.financialImpact, type: e.target.value } })}>
+                  <option value="spent">Spent</option>
+                  <option value="earned">Earned</option>
+                </select>
               </div>
-              {form.financials.map((fi, i) => (
-                <div key={i} className="flex gap-2 mb-2">
-                  <select className="input flex-1" value={fi.accountId}
-                    onChange={(e) => updateRow('financials', i, 'accountId', e.target.value)}>
-                    <option value="">Select account…</option>
-                    {accounts.map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
-                  </select>
-                  <input className="input w-28" type="number" placeholder="Amount"
-                    value={fi.amount} onChange={(e) => updateRow('financials', i, 'amount', e.target.value)} />
-                  <select className="input w-28" value={fi.txType}
-                    onChange={(e) => updateRow('financials', i, 'txType', e.target.value)}>
-                    <option value="spent">Spent</option>
-                    <option value="earned">Earned</option>
-                  </select>
-                  <button type="button" onClick={() => removeRow('financials', i)}
-                    className="text-red-400 hover:text-red-600 text-lg">×</button>
-                </div>
-              ))}
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t">
@@ -376,38 +358,23 @@ export default function Events() {
 
       {/* Detail Modal */}
       {detailEvent && (
-        <Modal title={detailEvent.name || detailEvent.notes || 'Event Details'} onClose={() => setDetailEvent(null)}>
+        <Modal title={`Event — ${new Date(detailEvent.timestamp || detailEvent.createdAt).toLocaleDateString()}`}
+          onClose={() => setDetailEvent(null)}>
           <div className="space-y-3 text-sm">
-            <p className="text-gray-500">
-              {new Date(detailEvent.date || detailEvent.createdAt).toLocaleDateString()}
-            </p>
-            {detailEvent.notes && <p className="text-gray-600">{detailEvent.notes}</p>}
             {detailData ? (
               <>
                 <Detail label="Activities"
-                  items={(detailData.activities || []).map((a) => a.name || a)} badge="indigo" />
+                  items={(detailData.activityIds || []).map((a) => a.name || a)} badge="indigo" />
                 <Detail label="Resources"
-                  items={(detailData.resources  || []).map((r) => r.name || r)} badge="yellow" />
+                  items={(detailData.resourceIds  || []).map((r) => r.name || r)} badge="yellow" />
                 <Detail label="People"
-                  items={(detailData.people     || []).map((p) => p.name || p)} badge="pink" />
-                {(detailData.inputs || []).length > 0 && (
+                  items={(detailData.peopleIds    || []).map((p) => p.name || p)} badge="pink" />
+                {detailData.financialImpact?.accountId && (
                   <div>
-                    <span className="font-medium text-gray-700">Inputs:</span>
-                    <ul className="ml-3 mt-1 space-y-1">
-                      {detailData.inputs.map((inp, i) => (
-                        <li key={i} className="text-gray-600">{inp.name}: <strong>{inp.value}</strong> ({inp.type})</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {(detailData.outcomes || []).length > 0 && (
-                  <div>
-                    <span className="font-medium text-gray-700">Outcomes:</span>
-                    <ul className="ml-3 mt-1 space-y-1">
-                      {detailData.outcomes.map((oc, i) => (
-                        <li key={i} className="text-gray-600">{oc.name}: <strong>{oc.value}</strong></li>
-                      ))}
-                    </ul>
+                    <span className="font-medium text-gray-700">Financial: </span>
+                    <span className={detailData.financialImpact.type === 'earned' ? 'text-green-600' : 'text-red-600'}>
+                      {detailData.financialImpact.type === 'earned' ? '+' : '-'}${detailData.financialImpact.amount}
+                    </span>
                   </div>
                 )}
               </>

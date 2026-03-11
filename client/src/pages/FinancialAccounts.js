@@ -4,15 +4,10 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorMessage   from '../components/common/ErrorMessage';
 import { Modal, Field } from './Activities';
 
-const ACCOUNT_TYPES = ['checking', 'savings', 'credit', 'investment', 'cash', 'other'];
+// FinancialAccount schema: name, type (Bank|Wallet|Investment), balance, events[]
+const ACCOUNT_TYPES = ['Bank', 'Wallet', 'Investment'];
 
-const EMPTY_FORM = {
-  name:    '',
-  type:    'checking',
-  balance: '',
-  currency:'USD',
-  notes:   '',
-};
+const EMPTY_FORM = { name: '', type: 'Bank', balance: '' };
 
 export default function FinancialAccounts() {
   const {
@@ -29,7 +24,6 @@ export default function FinancialAccounts() {
   useEffect(() => { fetchAccounts(); /* eslint-disable-next-line */ }, []);
 
   const filtered = accounts.filter((a) => !filterType || a.type === filterType);
-
   const totalBalance = filtered.reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
 
   function openCreate() {
@@ -40,13 +34,7 @@ export default function FinancialAccounts() {
   }
 
   function openEdit(a) {
-    setForm({
-      name:     a.name     || '',
-      type:     a.type     || 'checking',
-      balance:  a.balance  ?? '',
-      currency: a.currency || 'USD',
-      notes:    a.notes    || '',
-    });
+    setForm({ name: a.name || '', type: a.type || 'Bank', balance: a.balance ?? '' });
     setEditTarget(a);
     setFormErr('');
     setShowModal(true);
@@ -55,7 +43,11 @@ export default function FinancialAccounts() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.name.trim()) { setFormErr('Name is required'); return; }
-    const payload = { ...form, balance: form.balance !== '' ? Number(form.balance) : 0 };
+    const payload = {
+      name:    form.name.trim(),
+      type:    form.type,
+      balance: form.balance !== '' ? Number(form.balance) : 0,
+    };
     try {
       if (editTarget) await updateAccount(editTarget._id, payload);
       else            await createAccount(payload);
@@ -77,8 +69,7 @@ export default function FinancialAccounts() {
 
       <ErrorMessage message={error} onDismiss={clearError} />
 
-      {/* Summary bar */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-5 flex items-center justify-between">
+      <div className="bg-white rounded-xl shadow-sm p-4 mb-5 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex gap-3 flex-wrap">
           <select className="input w-40" value={filterType}
             onChange={(e) => setFilterType(e.target.value)}>
@@ -110,9 +101,6 @@ export default function FinancialAccounts() {
                   <div>
                     <div className="font-semibold text-gray-800">{a.name}</div>
                     <span className="badge badge-blue">{a.type}</span>
-                    {a.currency && a.currency !== 'USD' && (
-                      <span className="badge badge-gray ml-1">{a.currency}</span>
-                    )}
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <button onClick={() => openEdit(a)} className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600">Edit</button>
@@ -120,9 +108,9 @@ export default function FinancialAccounts() {
                   </div>
                 </div>
                 <div className={`text-2xl font-bold ${bal >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {bal >= 0 ? '+' : ''}{bal.toFixed(2)} {a.currency || 'USD'}
+                  {bal >= 0 ? '+' : ''}{bal.toFixed(2)}
                 </div>
-                {a.notes && <p className="text-xs text-gray-400 mt-2 line-clamp-2">{a.notes}</p>}
+                <div className="text-xs text-gray-400 mt-1">{(a.events || []).length} linked event(s)</div>
               </div>
             );
           })}
@@ -137,25 +125,15 @@ export default function FinancialAccounts() {
               <input className="input" value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Type">
-                <select className="input" value={form.type}
-                  onChange={(e) => setForm({ ...form, type: e.target.value })}>
-                  {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </Field>
-              <Field label="Currency">
-                <input className="input" placeholder="USD" value={form.currency}
-                  onChange={(e) => setForm({ ...form, currency: e.target.value })} />
-              </Field>
-            </div>
+            <Field label="Type">
+              <select className="input" value={form.type}
+                onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
             <Field label="Balance">
               <input className="input" type="number" step="0.01" value={form.balance}
                 onChange={(e) => setForm({ ...form, balance: e.target.value })} />
-            </Field>
-            <Field label="Notes">
-              <textarea className="input" rows={2} value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </Field>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>

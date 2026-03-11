@@ -4,24 +4,23 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorMessage   from '../components/common/ErrorMessage';
 import { Modal, Field } from './Activities';
 
-const INPUT_TYPES = ['numeric', 'text', 'boolean', 'duration', 'rating', 'other'];
+// Input schema: name, type (enum), value (Number), activityId, eventId
+const INPUT_TYPES = ['time', 'money', 'effort', 'materials', 'data', 'custom'];
 
 const TYPE_BADGE = {
-  numeric:  'badge-blue',
-  text:     'badge-gray',
-  boolean:  'badge-green',
-  duration: 'badge-yellow',
-  rating:   'badge-purple',
-  other:    'badge-gray',
+  time:      'badge-blue',
+  money:     'badge-green',
+  effort:    'badge-yellow',
+  materials: 'badge-purple',
+  data:      'badge-indigo',
+  custom:    'badge-gray',
 };
 
 const EMPTY_FORM = {
   name:       '',
-  type:       'numeric',
+  type:       'custom',
   value:      '',
-  unit:       '',
-  activity:   '',
-  notes:      '',
+  activityId: '',
 };
 
 export default function Inputs() {
@@ -45,7 +44,7 @@ export default function Inputs() {
 
   const filtered = inputs.filter((inp) => {
     const tMatch = !filterType     || inp.type === filterType;
-    const aMatch = !filterActivity || (inp.activity?._id || inp.activity) === filterActivity;
+    const aMatch = !filterActivity || (inp.activityId?._id || inp.activityId) === filterActivity;
     return tMatch && aMatch;
   });
 
@@ -58,12 +57,10 @@ export default function Inputs() {
 
   function openEdit(inp) {
     setForm({
-      name:     inp.name || '',
-      type:     inp.type || 'numeric',
-      value:    inp.value ?? '',
-      unit:     inp.unit || '',
-      activity: inp.activity?._id || inp.activity || '',
-      notes:    inp.notes || '',
+      name:       inp.name || '',
+      type:       inp.type || 'custom',
+      value:      inp.value ?? '',
+      activityId: inp.activityId?._id || inp.activityId || '',
     });
     setEditTarget(inp);
     setFormErr('');
@@ -73,9 +70,16 @@ export default function Inputs() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.name.trim()) { setFormErr('Name is required'); return; }
+    if (form.value === '') { setFormErr('Value is required'); return; }
+    const payload = {
+      name:       form.name.trim(),
+      type:       form.type,
+      value:      Number(form.value),
+      activityId: form.activityId || undefined,
+    };
     try {
-      if (editTarget) await updateInput(editTarget._id, form);
-      else            await createInput(form);
+      if (editTarget) await updateInput(editTarget._id, payload);
+      else            await createInput(payload);
       setShowModal(false);
     } catch (_) {}
   }
@@ -94,7 +98,6 @@ export default function Inputs() {
 
       <ErrorMessage message={error} onDismiss={clearError} />
 
-      {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-5 flex flex-wrap gap-3">
         <select className="input flex-1 min-w-32" value={filterType}
           onChange={(e) => setFilterType(e.target.value)}>
@@ -133,12 +136,9 @@ export default function Inputs() {
                   <td className="px-4 py-3">
                     <span className={`badge ${TYPE_BADGE[inp.type] || 'badge-gray'}`}>{inp.type}</span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {inp.value !== undefined && inp.value !== '' ? String(inp.value) : '—'}
-                    {inp.unit ? ` ${inp.unit}` : ''}
-                  </td>
+                  <td className="px-4 py-3 text-gray-600">{inp.value}</td>
                   <td className="px-4 py-3 text-gray-500">
-                    {inp.activity?.name || '—'}
+                    {inp.activityId?.name || '—'}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => openEdit(inp)} className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 mr-1">Edit</button>
@@ -166,25 +166,17 @@ export default function Inputs() {
                   {INPUT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </Field>
-              <Field label="Unit">
-                <input className="input" placeholder="km, hrs, …" value={form.unit}
-                  onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+              <Field label="Value *">
+                <input className="input" type="number" value={form.value}
+                  onChange={(e) => setForm({ ...form, value: e.target.value })} />
               </Field>
             </div>
-            <Field label="Value">
-              <input className="input" value={form.value}
-                onChange={(e) => setForm({ ...form, value: e.target.value })} />
-            </Field>
             <Field label="Activity">
-              <select className="input" value={form.activity}
-                onChange={(e) => setForm({ ...form, activity: e.target.value })}>
+              <select className="input" value={form.activityId}
+                onChange={(e) => setForm({ ...form, activityId: e.target.value })}>
                 <option value="">None</option>
                 {activities.map((a) => <option key={a._id} value={a._id}>{a.name}</option>)}
               </select>
-            </Field>
-            <Field label="Notes">
-              <textarea className="input" rows={2} value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </Field>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>

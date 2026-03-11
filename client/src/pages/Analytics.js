@@ -21,72 +21,56 @@ export default function Analytics() {
     // eslint-disable-next-line
   }, []);
 
-  // Filter events by date range
   const filteredEvents = events.filter((ev) => {
-    const d = new Date(ev.date || ev.createdAt);
-    const fromOk = !dateFrom || d >= new Date(dateFrom);
-    const toOk   = !dateTo   || d <= new Date(dateTo + 'T23:59:59');
-    return fromOk && toOk;
+    const d = new Date(ev.timestamp || ev.createdAt);
+    return (!dateFrom || d >= new Date(dateFrom)) &&
+           (!dateTo   || d <= new Date(dateTo + 'T23:59:59'));
   });
 
-  // ── Aggregate stats ────────────────────────────────────────────────────────
-  let totalInputs   = 0;
-  let totalOutcomes = 0;
-  let totalSpent    = 0;
-  let totalEarned   = 0;
+  // ── Aggregates ────────────────────────────────────────────────────────────
+  let totalSpent  = 0;
+  let totalEarned = 0;
 
   const resourceUsage = {};
   const peopleUsage   = {};
+  const activityFreq  = {};
 
   filteredEvents.forEach((ev) => {
-    // Inputs
-    (ev.inputs || []).forEach((inp) => {
-      const v = parseFloat(inp.value);
-      if (!isNaN(v)) totalInputs += v;
-    });
-    // Outcomes
-    (ev.outcomes || []).forEach((oc) => {
-      const v = parseFloat(oc.value);
-      if (!isNaN(v)) totalOutcomes += v;
-    });
-    // Financials
-    (ev.financials || []).forEach((fi) => {
-      const amt = parseFloat(fi.amount);
-      if (!isNaN(amt)) {
-        if (fi.txType === 'earned') totalEarned += amt;
-        else                        totalSpent  += amt;
-      }
-    });
-    // Resource usage
-    (ev.resources || []).forEach((r) => {
+    // Financial
+    const fi = ev.financialImpact;
+    if (fi && fi.amount != null) {
+      if (fi.type === 'earned') totalEarned += Number(fi.amount);
+      else                      totalSpent  += Number(fi.amount);
+    }
+
+    // Resource usage (resourceIds)
+    (ev.resourceIds || []).forEach((r) => {
       const id   = r._id || r;
       const name = r.name || resources.find((x) => x._id === id)?.name || id;
       if (!resourceUsage[id]) resourceUsage[id] = { name, count: 0 };
       resourceUsage[id].count++;
     });
-    // People frequency
-    (ev.people || []).forEach((p) => {
+
+    // People frequency (peopleIds)
+    (ev.peopleIds || []).forEach((p) => {
       const id   = p._id || p;
       const name = p.name || people.find((x) => x._id === id)?.name || id;
       if (!peopleUsage[id]) peopleUsage[id] = { name, count: 0 };
       peopleUsage[id].count++;
     });
-  });
 
-  const topResources = Object.values(resourceUsage).sort((a, b) => b.count - a.count).slice(0, 10);
-  const topPeople    = Object.values(peopleUsage).sort((a, b) => b.count - a.count).slice(0, 10);
-
-  // Activity event frequency
-  const activityFreq = {};
-  filteredEvents.forEach((ev) => {
-    (ev.activities || []).forEach((a) => {
+    // Activity frequency (activityIds)
+    (ev.activityIds || []).forEach((a) => {
       const id   = a._id || a;
       const name = a.name || activities.find((x) => x._id === id)?.name || id;
       if (!activityFreq[id]) activityFreq[id] = { name, count: 0 };
       activityFreq[id].count++;
     });
   });
-  const topActivities = Object.values(activityFreq).sort((a, b) => b.count - a.count).slice(0, 10);
+
+  const topResources  = Object.values(resourceUsage).sort((a, b) => b.count - a.count).slice(0, 10);
+  const topPeople     = Object.values(peopleUsage).sort((a, b)   => b.count - a.count).slice(0, 10);
+  const topActivities = Object.values(activityFreq).sort((a, b)  => b.count - a.count).slice(0, 10);
 
   const netBalance = accounts.reduce((s, a) => s + (Number(a.balance) || 0), 0);
 
@@ -109,41 +93,30 @@ export default function Analytics() {
             className="btn-secondary text-xs">Clear</button>
         )}
         <span className="text-xs text-gray-400 ml-auto">
-          {filteredEvents.length} of {events.length} event(s) shown
+          {filteredEvents.length} of {events.length} event(s)
         </span>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Total Input Value"  value={totalInputs.toFixed(2)}   color="bg-blue-500"   icon="📥" />
-        <StatCard label="Total Outcome Value" value={totalOutcomes.toFixed(2)} color="bg-green-500"  icon="📤" />
-        <StatCard label="Total Spent"         value={`$${totalSpent.toFixed(2)}`}  color="bg-red-500"    icon="💸" />
-        <StatCard label="Total Earned"        value={`$${totalEarned.toFixed(2)}`} color="bg-yellow-500" icon="💰" />
-      </div>
-
-      {/* Account net balance */}
-      <div className="bg-white rounded-xl shadow-sm p-5 mb-6">
-        <h2 className="text-lg font-semibold text-gray-700 mb-2">Account Net Balance</h2>
-        <p className={`text-3xl font-bold ${netBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-          {netBalance >= 0 ? '+' : ''}{netBalance.toFixed(2)}
-        </p>
-        <p className="text-xs text-gray-400 mt-1">Across {accounts.length} account(s)</p>
+        <StatCard label="Events"      value={filteredEvents.length} color="bg-indigo-500" icon="📅" />
+        <StatCard label="Total Spent"  value={`$${totalSpent.toFixed(2)}`}  color="bg-red-500"    icon="💸" />
+        <StatCard label="Total Earned" value={`$${totalEarned.toFixed(2)}`} color="bg-green-500"  icon="💰" />
+        <StatCard label="Net Balance"  value={`${netBalance >= 0 ? '+' : ''}$${netBalance.toFixed(2)}`}
+          color={netBalance >= 0 ? 'bg-blue-500' : 'bg-orange-500'} icon="🏦" />
       </div>
 
       {/* Chart placeholder */}
       <div className="bg-white rounded-xl shadow-sm p-5 mb-6">
-        <h2 className="text-lg font-semibold text-gray-700 mb-3">Inputs vs Outcomes Over Time</h2>
+        <h2 className="text-lg font-semibold text-gray-700 mb-3">Financial Activity Over Time</h2>
         <div className="border-2 border-dashed border-gray-200 rounded-lg h-48 flex items-center justify-center text-gray-400 text-sm">
           📈 Chart placeholder — integrate Recharts or Chart.js here
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top Activities */}
         <FreqTable title="Most Active Activities" rows={topActivities} icon="🎯" />
-        {/* Resource utilization */}
         <FreqTable title="Resource Utilization"   rows={topResources}  icon="🗂️" />
-        {/* People frequency */}
         <FreqTable title="People Interaction"     rows={topPeople}     icon="👥" />
       </div>
     </div>
