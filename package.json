@@ -1,0 +1,14 @@
+{
+  "name": "lifework-manager",
+  "version": "1.0.0",
+  "description": "LifeWork Manager - MERN stack personal Life, Work, and Finance Management System",
+  "scripts": {
+    "server": "cd server && npm start",
+    "client": "cd client && npm start",
+    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm start\"",
+    "install-all": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

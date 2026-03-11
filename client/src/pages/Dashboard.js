@@ -33,8 +33,7 @@ export default function Dashboard() {
     fetchTasks();
     fetchEvents();
     fetchAccounts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line
 
   if (loading && !activities.length && !events.length) return <LoadingSpinner />;
 
@@ -82,11 +81,11 @@ export default function Dashboard() {
                   <span className="text-lg">📅</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">
-                      {ev.name || ev.notes || 'Event'}
+                      Event — {new Date(ev.timestamp || ev.createdAt).toLocaleTimeString()}
                     </p>
                     <p className="text-xs text-gray-400">
-                      {new Date(ev.date || ev.createdAt).toLocaleDateString()} ·{' '}
-                      {ev.activities?.length || 0} activit{ev.activities?.length === 1 ? 'y' : 'ies'}
+                      {new Date(ev.timestamp || ev.createdAt).toLocaleDateString()} ·{' '}
+                      {ev.activityIds?.length || 0} activit{ev.activityIds?.length === 1 ? 'y' : 'ies'}
                     </p>
                   </div>
                 </li>
